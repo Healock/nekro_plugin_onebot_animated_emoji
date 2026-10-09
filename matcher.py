@@ -7,9 +7,11 @@ from nonebot.adapters.onebot.v11 import MessageEvent
 from nonebot.matcher import Matcher
 
 from nekro_agent.api.schemas import AgentCtx
+from nekro_agent.api.plugin import NekroPlugin
 from nekro_agent.schemas.chat_message import ChatMessage
 
 from . import plugin
+from .matcher_cleanup import destroy_matcher
 from .event_cache import animation_file_names
 from .event_registry import (
     AnimationEventCache,
@@ -21,10 +23,9 @@ from .event_registry import (
 
 animation_event_cache = AnimationEventCache()
 animation_hint_cache = AnimationHintCache()
-animation_event_matcher = on_message(priority=99998, block=False)
+animation_event_matcher: type[Matcher] | None = None
 
 
-@animation_event_matcher.handle()
 async def capture_animation_event(_: Matcher, event: MessageEvent) -> None:
     if not plugin.is_enabled:
         return
@@ -51,7 +52,6 @@ async def capture_animation_event(_: Matcher, event: MessageEvent) -> None:
     )
 
 
-@plugin.mount_on_user_message()
 async def annotate_animated_emoji(_ctx: AgentCtx, message: ChatMessage) -> None:
     if message.adapter_key != "onebot_v11":
         return
@@ -73,11 +73,37 @@ async def annotate_animated_emoji(_ctx: AgentCtx, message: ChatMessage) -> None:
         )
 
 
-@plugin.mount_prompt_inject_method("动画表情上下文")
 async def inject_animation_hint(_ctx: AgentCtx) -> str:
     return animation_hint_cache.prompt(_ctx.chat_key)
 
 
-@plugin.mount_on_channel_reset()
 async def reset_animation_hint(_ctx: AgentCtx) -> None:
     animation_hint_cache.clear(_ctx.chat_key)
+
+
+def register_matcher() -> None:
+    global animation_event_matcher
+    if animation_event_matcher is not None:
+        return
+    matcher = on_message(priority=99998, block=False)
+    try:
+        matcher.handle()(capture_animation_event)
+    except Exception:
+        destroy_matcher(matcher)
+        raise
+    animation_event_matcher = matcher
+
+
+def unregister_matcher() -> None:
+    global animation_event_matcher
+    if animation_event_matcher is not None:
+        destroy_matcher(animation_event_matcher)
+        animation_event_matcher = None
+
+
+def bind_plugin(instance: NekroPlugin) -> None:
+    global plugin
+    plugin = instance
+    plugin.mount_on_user_message()(annotate_animated_emoji)
+    plugin.mount_prompt_inject_method("动画表情上下文")(inject_animation_hint)
+    plugin.mount_on_channel_reset()(reset_animation_hint)

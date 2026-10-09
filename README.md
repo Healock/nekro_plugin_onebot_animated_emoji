@@ -23,3 +23,19 @@ DATA_DIR/plugins/workdir/nekro_plugin_onebot_animated_emoji/
 - 其他适配器、普通图片、群聊和私聊的原有消息处理均不变。
 
 本插件不改动 NekroAgent 核心。静态测试不能替代真实 NekroAgent、OneBot 和多模态模型环境验证。
+
+## 生命周期与热重载
+
+`0.1.1` 修复热重载后显示加载成功但原始事件监听已失效的问题。matcher 在插件初始化时注册，清理时销毁并清空缓存；再次初始化会重新注册，不依赖 Python 子模块重新导入。重复初始化不会重复注册，重复清理可以安全执行。
+
+热重载会清空已有表情标签，不补标此前收到的图片；重载后新收到的表情包重新识别。不修改 NekroAgent 核心、用户消息或 Agent 触发规则。
+
+## 开发验证
+
+```powershell
+python -B -m unittest discover -s tests -v
+poe lint
+git diff --check
+```
+
+生命周期回归测试使用轻量替身模拟 NoneBot 注册表及 Nekro 模块缓存，未做真实 Nekro 运行验证。
